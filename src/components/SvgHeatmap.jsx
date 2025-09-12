@@ -15,6 +15,11 @@ const FILL_OPACITY = 0.40;
 const STROKE_WIDTH = 1.5;
 const MAP_SCALE = 1;
 
+/* === Label tuning === */
+const LABEL_MIN = 9;          // px
+const LABEL_MAX = 24;         // px
+const LABEL_FRACTION = 0.095; // ~10% of bbox width
+
 /* ---------- Sample capacities (edit anytime) ---------- */
 const CAPACITY = {
   B1:120, B2:100, B3:60,  B4:120, B5:120, B6:150, B7:50,  B8:80,  B9:200,
@@ -25,42 +30,41 @@ const CAPACITY = {
 
 /* ---------- Building display names ---------- */
 const BUILDING_NAMES = {
-  B1:"Heat Eng. Lab",
-  B2:"Library",
-  B3:"Drawing Office",
-  B4:"Lecture Hall 1",
-  B5:"Lecture Hall 2",
-  B6:"Lecture Hall 3",
-  B7:"Admin Block",
+  B1:"Engineering Carpentry Shop",
+  B2:"Engineering Workshop",
+  B3:"",
+  B4:"Generator Room",
+  B5:"",
+  B6:"Structure Lab",
+  B7:"Administrative Building",
   B8:"Canteen",
-  B9:"Auditorium",
-  B10:"IT Center",
-  B11:"Computer Lab",
-  B12:"Drawing Office",
-  B13:"Electronics Lab",
-  B14:"Mechanical Lab",
-  B15:"Civil Eng. Lab",
-  B16:"Physics Lab",
-  B17:"Chemistry Lab",
-  B18:"Biology Lab",
-  B19:"Maths Dept",
-  B20:"Physics Dept",
-  B21:"Chemistry Dept",
-  B22:"Biology Dept",
-  B23:"Faculty Office",
-  B24:"Research Center",
-  B25:"Gymnasium",
-  B26:"Sports Complex",
-  B27:"Swimming Pool",
-  B28:"Hostel A",
-  B29:"Hostel B",
-  B30:"Hostel C",
-  B31:"Cafeteria",
-  B32:"Bookshop",
-  B33:"Medical Center",
-  B34:"Auditorium Annex",
+  B9:"Lecture Room 10/11",
+  B10:"Engineering Library",
+  B11:"Department of Chemical and process Engineering",
+  B12:"Security Unit",
+  B13:"Drawing Office 2",
+  B14:"Faculty Canteen",
+  B15:"Department of Manufacturing and Industrial Engineering",
+  B16:"Professor E.O.E. Perera Theater",
+  B17:"Electronic Lab",
+  B18:"Washrooms",
+  B19:"Electrical and Electronic Workshop",
+  B20:"Department of Computer Engineering",
+  B21:"",
+  B22:"Environmental Lab",
+  B23:"Applied Mechanics Lab",
+  B24:"New Mechanics Lab",
+  B25:"",
+  B26:"",
+  B27:"",
+  B28:"Materials Lab",
+  B29:"Thermodynamics Lab",
+  B30:"Fluids Lab",
+  B31:"Surveying and Soil Lab",
+  B32:"Department of Engineering Mathematics",
+  B33:"Drawing Office 1",
+  B34:"Department of Electrical and Electronic Engineering ",
 };
-
 
 export default function SvgHeatmap() {
   const hostRef = useRef(null);
@@ -72,8 +76,8 @@ export default function SvgHeatmap() {
   const [selectedId, setSelectedId] = useState(null);
 
   // Live data from API
-  const [buildingInfo, setBuildingInfo] = useState({});    // { B1: { name, current, capacity?, updatedAt? } }
-  const [buildingColors, setBuildingColors] = useState({}); // { B1: "#hex" }
+  const [buildingInfo, setBuildingInfo] = useState({});
+  const [buildingColors, setBuildingColors] = useState({});
 
   // Refs for event handlers
   const infoRef   = useRef(buildingInfo);
@@ -116,6 +120,7 @@ export default function SvgHeatmap() {
   }, [list]);
 
   /* ---------------- SVG bootstrapping ---------------- */
+  const [svgReady, setSvgReady] = useState(false); // for initial zoom apply
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -137,11 +142,15 @@ export default function SvgHeatmap() {
         
         ensureViewBoxFitsContent(svg);
         expandUses(svg);
-
-        // 🔑 Annotate all shapes/groups with canonical building ids like B1, B18A
         annotateCanonicalBuildingIds(svg);
 
         svgRef.current = svg;
+
+        // Initial zoom apply (so current scale is visible immediately)
+        svg.style.transformOrigin = "center center";
+        svg.style.transform = `scale(${MAP_SCALE})`;
+
+        setSvgReady(true);
 
         const closeOnInside = (e) => {
           if (!hostRef.current) return;
@@ -160,14 +169,10 @@ export default function SvgHeatmap() {
 
   /* ---------------- Live fetcher (AXIOS) ---------------- */
   function normalizeLivePayload(raw) {
-    // Accept BOTH shapes:
-    // A) Minimal: { data: [ { id, count }, ... ] }
-    // B) Rich:    { success, source, data: [ { building_id, building_name, current_crowd, color, status_timestamp }, ... ] }
     const arr = Array.isArray(raw?.data) ? raw.data : [];
     const out = {};
 
     for (const item of arr) {
-      // Prefer minimal keys if present
       const id = item?.id || item?.building_id;
       if (!id) continue;
 
@@ -179,7 +184,6 @@ export default function SvgHeatmap() {
         name: item?.building_name || item?.name || id,
         current,
         color: item?.color || null,
-        // use provided timestamp or fallback to "now"
         updatedAt: item?.status_timestamp ? new Date(item.status_timestamp) : new Date()
       };
     }
@@ -196,10 +200,8 @@ export default function SvgHeatmap() {
         for (const [id, v] of Object.entries(payload)) {
           next[id] = {
             ...(next[id] || {}),
-            name: v.name,
             name: BUILDING_NAMES[id] ?? v.name ?? next[id]?.name ?? id,
             current: v.current,
-            // inject capacity from our local table (editable later)
             capacity: CAPACITY[id] ?? next[id]?.capacity ?? null,
             updatedAt: v.updatedAt ?? next[id]?.updatedAt ?? null
           };
@@ -207,7 +209,6 @@ export default function SvgHeatmap() {
         return next;
       });
 
-      // optional server color overrides; not required when capacities exist
       setBuildingColors(prev => {
         const next = { ...prev };
         for (const [id, v] of Object.entries(payload)) {
@@ -216,7 +217,6 @@ export default function SvgHeatmap() {
         return next;
       });
 
-      // last updated (fallback to now if timestamps missing)
       const newest = (Array.isArray(data?.data) ? data.data : [])
         .map(x => new Date(x?.status_timestamp || Date.now()))
         .filter(d => !isNaN(d))
@@ -244,16 +244,56 @@ export default function SvgHeatmap() {
     ids.forEach((id) => {
       const info  = buildingInfo[id];
       const color = buildingColors[id] || colorForStatus(statusFor(info));
-      const nodes = findNodesForId(svg, id);       // exact by data-building-id
+      const nodes = findNodesForId(svg, id);
       nodes.forEach((node) => {
         if (!node.dataset.hmBound) {
           attachInteractions(node, id);
           node.dataset.hmBound = "1";
         }
         paintNodeDeep(node, color);
+
+        // === ensure/update the centered ID label at the SVG root layer ===
+        ensureIdLabel(svg, node, id);
       });
     });
   }, [buildingInfo, buildingColors]);
+
+  /* ================== SMART POPUP PLACEMENT ================== */
+  function smartPopupPosition(node, hostEl, popupW = 280, popupH = 170, pad = 12){
+    const hb = hostEl.getBoundingClientRect();
+    const nb = node.getBoundingClientRect();
+
+    const hostW = hb.width, hostH = hb.height;
+
+    // Building box relative to host
+    const bx1 = nb.left - hb.left;
+    const by1 = nb.top  - hb.top;
+    const bx2 = nb.right - hb.left;
+    const by2 = nb.bottom - hb.top;
+
+    // Try: right → left → above → below
+    const candidates = [
+      { left: bx2 + pad,            top: by1,                 where: "right"  },
+      { left: bx1 - popupW - pad,   top: by1,                 where: "left"   },
+      { left: bx1,                  top: by1 - popupH - pad,  where: "top"    },
+      { left: bx1,                  top: by2 + pad,           where: "bottom" },
+    ];
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+    for (const c of candidates){
+      const l = clamp(c.left, pad, hostW - popupW - pad);
+      const t = clamp(c.top,  pad, hostH - popupH - pad);
+      const visibleW = Math.min(hostW - l, popupW + pad);
+      const visibleH = Math.min(hostH - t, popupH + pad);
+      if (visibleW >= popupW * 0.8 && visibleH >= popupH * 0.8){
+        return { left: l, top: t, where: c.where };
+      }
+    }
+
+    // Fallback: clamp near building corner
+    return { left: clamp(bx1, pad, hostW - popupW - pad), top: clamp(by1, pad, hostH - popupH - pad), where: "fallback" };
+  }
 
   /* ---------------- Interactions ---------------- */
   function attachInteractions(node, id) {
@@ -267,8 +307,9 @@ export default function SvgHeatmap() {
       const infoNow  = infoRef.current?.[id];
       const status   = statusFor(infoNow);
       const colorNow = colorsRef.current?.[id] || colorForStatus(status);
-      const anchor   = centerOfNodeInHost(node, hostRef.current);
       const occ      = infoNow ? occPct(infoNow) : null;
+
+      const pos = smartPopupPosition(node, hostRef.current);
 
       setSelectedId(id);
       setPopup({
@@ -279,8 +320,9 @@ export default function SvgHeatmap() {
         occ,
         status,
         color: colorNow,
-        x: anchor.x,
-        y: anchor.y,
+        left: pos.left,
+        top:  pos.top,
+        where: pos.where,
       });
     });
   }
@@ -293,13 +335,43 @@ export default function SvgHeatmap() {
     const nodes = findNodesForId(svg, b.id);
     const node = nodes[0];
     if (!node) return;
-    const anchor = centerOfNodeInHost(node, hostRef.current);
+
+    const pos = smartPopupPosition(node, hostRef.current);
+
     setSelectedId(b.id);
     setPopup({
       id: b.id, name: b.name, current: b.current, capacity: b.capacity,
-      occ: b.occ, status: b.status, color: b.color, x: anchor.x, y: anchor.y
+      occ: b.occ, status: b.status, color: b.color,
+      left: pos.left, top: pos.top, where: pos.where
     });
   }
+
+  /* ================== MAP ZOOM ================== */
+  const [zoom, setZoom] = useState(MAP_SCALE);
+
+  // Keep SVG scale in sync with state
+  useEffect(() => {
+    if (!svgReady) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    svg.style.transformOrigin = "center center";
+    svg.style.transform = `scale(${zoom})`;
+    svg.style.willChange = "transform";
+  }, [zoom, svgReady]);
+
+  const Z_MIN = 0.5, Z_MAX = 3, Z_STEP = 0.15;
+  const clampZoom = (v,min,max) => Math.max(min, Math.min(max, v));
+  function zoomIn(){ setZoom(z => clampZoom(+(z + Z_STEP).toFixed(2), Z_MIN, Z_MAX)); }
+  function zoomOut(){ setZoom(z => clampZoom(+(z - Z_STEP).toFixed(2), Z_MIN, Z_MAX)); }
+  function zoomReset(){ setZoom(MAP_SCALE); }
+
+  function onWheel(e){
+    e.preventDefault();
+    const dir = e.deltaY > 0 ? -1 : 1;
+    const step = Z_STEP / 1.5;
+    setZoom(z => clampZoom(+(z * (1 + dir*step)).toFixed(3), Z_MIN, Z_MAX));
+  }
+  /* ============================================== */
 
   return (
     <div className="page">
@@ -320,22 +392,41 @@ export default function SvgHeatmap() {
         <div className="osm left"><iframe className="osm-frame" src={OSM_EMBED} title="Left map" /></div>
 
         <div className="center">
-          <div ref={hostRef} className="svg-host" />
+          <div
+            ref={hostRef}
+            className="svg-host"
+            onWheel={onWheel}  // wheel zoom
+          />
+          {/* Zoom controls */}
+          <div className="zoom-controls">
+            <button onClick={zoomOut} aria-label="Zoom out">−</button>
+            <div className="zoom-indicator">{Math.round(zoom*100)}%</div>
+            <button onClick={zoomIn} aria-label="Zoom in">+</button>
+            <button onClick={zoomReset} className="reset" aria-label="Reset zoom">Reset</button>
+          </div>
+
           <div className="legend-pill">
             <span className="chip" style={{ "--c": "#22c55e" }}>Low &lt;20%</span>
             <span className="chip" style={{ "--c": "#eab308" }}>Moderate &lt;50%</span>
-            <span className="chip" style={{ "--c": "#f97316" }}>Busy &lt;70%</span>
-            <span className="chip" style={{ "--c": "#ef4444" }}>High &lt;90%</span>
-            <span className="chip" style={{ "--c": "#991b1b" }}>Critical ≥90%</span>
+            <span className="chip" style={{ "--c": "#f97316" }}>Busy &lt;80%</span>
+            <span className="chip" style={{ "--c": "#ef4444" }}>High &ge;90%</span>
           </div>
 
           {popup && (
-            <div className="popup"
-                 style={{ left: Math.max(12, popup.x - 160), top: Math.max(12, popup.y - 18), borderColor: popup.color }}
-                 role="dialog" aria-modal="false">
-              <div className="popup-arrow" style={{ borderTopColor: popup.color }} />
-              <div className="popup-hd" style={{ borderBottomColor: popup.color }}>
-                <div className="pill" style={{ background: popup.color }}>{popup.id}</div>
+            <div
+              className={`popup glass where-${popup.where || 'auto'}`}
+              style={{
+                left: popup.left,
+                top:  popup.top,
+                '--accent': popup.color,
+                '--p': `${popup.occ ?? 0}%`
+              }}
+              role="dialog"
+              aria-modal="false"
+            >
+              <div className="popup-arrow" />
+              <div className="popup-hd">
+                <div className="pill">{popup.id}</div>
                 <div className="bname" title={popup.name}>{popup.name}</div>
                 <button className="close" onClick={() => setPopup(null)} aria-label="Close">×</button>
               </div>
@@ -343,7 +434,12 @@ export default function SvgHeatmap() {
                 <Row label="Current visitors" value={numOrDash(popup.current)} />
                 <Row label="Capacity"         value={numOrDash(popup.capacity)} />
                 <Row label="Occupancy"        value={popup.occ != null ? `${popup.occ}%` : "—"} />
-                <Row label="Status"           value={<b style={{ color: popup.color }}>{popup.status}</b>} />
+                <Row label="Status"           value={<b style={{ color: 'var(--accent)' }}>{popup.status}</b>} />
+                {popup.occ != null && (
+                  <div className="meter" aria-label="Occupancy meter">
+                    <div className="fill" style={{ width: `var(--p)` }} />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -360,7 +456,6 @@ export default function SvgHeatmap() {
               <div className="stat small"><span className="dot yellow" /> {totals.byStatus.Moderate} Moderate</div>
               <div className="stat small"><span className="dot orange" /> {totals.byStatus.Busy} Busy</div>
               <div className="stat small"><span className="dot red" /> {totals.byStatus.High} High</div>
-              <div className="stat small"><span className="dot darkred" /> {totals.byStatus.Critical} Critical</div>
             </div>
           </div>
 
@@ -390,8 +485,6 @@ export default function SvgHeatmap() {
               {filtered.length === 0 && <div className="empty">No buildings match your search.</div>}
             </div>
           </div>
-
-          <div className="panel footnote"><div className="muted small">Map © OpenStreetMap · Your SVG © You</div></div>
         </aside>
 
         <div className="osm right"><iframe className="osm-frame" src={OSM_EMBED} title="Right map" /></div>
@@ -407,24 +500,26 @@ export default function SvgHeatmap() {
         html, body, #root { height:100%; margin:0; }
         html, body { overflow:hidden; }
         body { font-family: 'Montserrat', ui-sans-serif, system-ui; color:#0f172a; background:var(--bg); }
-        .page { display:grid; grid-template-rows:72px 1fr; height:100vh; }
+        .page { display:grid; grid-template-rows:72px 1fr; height:100vh;}
         .topbar{ display:flex; align-items:center; justify-content:space-between; padding:0 16px; border-bottom:1px solid var(--border); background:#fff; }
-        .brand{ display:flex; align-items:center; gap:12px; } .brand img{ width:34px; height:34px; object-fit:contain; }
-        .title{ font-weight:800; letter-spacing:.2px; margin-right:12px; }
+        .brand{ display:flex; align-items:center; gap:12px; } .brand img{ width:50px; height:50px; object-fit:contain; }
+        .title{ font-weight:700; letter-spacing:.2px; margin-right:1400px; font-size:24px; }
         .actions{ display:flex; align-items:center; gap:10px; } .muted{ color:var(--muted) } .small{ font-size:12px; }
         .btn{ appearance:none; border:1px solid var(--border); background:#111; color:#fff; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:600; }
-        .stage{ display:grid; grid-template-columns: 1fr minmax(540px,760px) 360px 1fr; align-items:stretch; gap:12px; height:calc(100vh - 72px); padding:12px; }
+        .stage{ display:grid; grid-template-columns: 1fr minmax(1500px,900px) 360px 1fr; align-items:stretch; gap:12px; height:calc(100vh - 72px); padding:12px; }
         .osm{ position:relative; overflow:hidden; border-radius:12px; box-shadow:var(--shadow); border:1px solid var(--border); }
         .center{ position:relative; }
         .sidepanel{ display:flex; flex-direction:column; gap:12px; }
         .osm-frame{ position:absolute; inset:0; width:100%; height:100%; border:0; filter:saturate(.9) brightness(1); pointer-events:none; background:#eaf2ff; }
         .svg-host{ width:100%; height:100%; border-radius:12px; overflow:hidden; background:#fff; box-shadow:var(--shadow); border:1px solid var(--border); display:grid; place-items:center; }
         .svg-host svg{ width:100%; height:100%; display:block; transform-origin:center center; transform:scale(${MAP_SCALE}); }
+
         .legend-pill{ position:absolute; left:12px; bottom:12px; display:flex; gap:8px; background:#fff; border:1px solid var(--border); border-radius:999px; padding:6px 10px; box-shadow:var(--shadow); }
-        .chip{ display:inline-flex; align-items:center; gap:8px; font-size:12px; color:#111; padding:4px 10px; border-radius:999px; background:#f8fafc; border:1px solid var(--border); }
+        .chip{ display:inline-flex; align-items:center; justify-content: center; gap:8px; min-width: 60px; font-size:12px; font-weight: 700; color:#111; padding:4px 10px; border-radius:999px; background:#f8fafc; border:1px solid var(--border);}
         .chip::before{ content:""; width:10px; height:10px; border-radius:50%; background: var(--c); box-shadow:0 0 0 3px color-mix(in srgb, var(--c), transparent 70%); }
+
+        /* (legacy popup base kept for compatibility) */
         .popup{ position:absolute; width:320px; background:#fff; color:#111; border:2px solid; border-radius:12px; box-shadow:var(--shadow); animation:pop .14s ease-out; }
-        @keyframes pop { from{ transform:translateY(4px); opacity:0 } to{ transform:none; opacity:1 } }
         .popup-arrow{ position:absolute; top:-10px; left:28px; width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid; filter: drop-shadow(0 -2px 4px rgba(0,0,0,.08)); }
         .popup-hd{ display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:2px solid; background:#fafafa; border-top-left-radius:10px; border-top-right-radius:10px; }
         .pill{ color:#fff; font-weight:800; padding:2px 8px; border-radius:999px; font-size:12px; }
@@ -432,30 +527,202 @@ export default function SvgHeatmap() {
         .close{ appearance:none; border:none; background:transparent; font-size:18px; line-height:1; cursor:pointer; color:#111; padding:0 4px; }
         .popup-body{ padding:10px 12px; display:grid; gap:8px; }
         .row{ display:flex; justify-content:space-between; font-size:14px; }
+
         .panel.card{ background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:12px; }
         .panel .panel-title{ font-weight:700; margin-bottom:8px; }
         .stats{ display:grid; gap:8px; }
-        .stat{ display:flex; align-items:baseline; gap:10px; } .stat .stat-value{ font-size:22px; font-weight:800; }
+        .stat{ display:flex; align-items:baseline; gap:10px; } .stat .stat-value{ font-size:22px; font-weight:800; margin-top: -6px; }
         .stat.small{ color:#374151; font-size:12px; display:flex; align-items:center; gap:6px; }
         .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
         .dot.green{background:#22c55e;} .dot.yellow{background:#eab308;} .dot.orange{background:#f97316;}
         .dot.red{background:#ef4444;} .dot.darkred{background:#991b1b;}
         .search{ width:90%; padding:10px 10px; border-radius:10px; border:1px solid var(--border); outline:none; background: #fff; color: #0f1072a; }
         .list .items{ display:flex; flex-direction:column; gap:8px; }
-        .item{ border:1px solid var(--border); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:6px; background:#fff; cursor:pointer; transition:transform .06s ease; }
+        .item{ border:1px solid var(--border); border-radius:10px; padding:10px 10px; display:flex; flex-direction:column; gap:6px; background:#fff; cursor:pointer; transition:transform .06s ease; }
         .item:hover{ transform:translateY(-1px); } .item.active{ outline:1px solid #111; }
         .item-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
         .idpill{ background:#111; color:#fff; padding:2px 10px; border-radius:999px; font-weight:700; font-size:12px; }
         .name{ font-weight:700; } .count{ color:#374151; font-size:13px; } .count-num{ font-weight:800; }
         .banner.error{ position:absolute; top:12px; left:12px; background:#fee2e2; color:#991b1b; border:1px solid #fecaca; padding:8px 12px; border-radius:10px; box-shadow:var(--shadow); }
+
+        /* === SVG building labels === */
+        .b-label{
+          pointer-events: none;
+          font-family: ui-sans-serif, system-ui, Montserrat, sans-serif;
+          font-weight: 500;
+          letter-spacing: .3px;
+          text-anchor: middle;
+          dominant-baseline: middle;
+          text-transform: uppercase;
+          fill: #443e3eff;
+          opacity: .95;
+          user-select: none;
+        }
+
         @media (max-width:1100px){ .stage{ grid-template-columns:0 minmax(520px,1fr) 340px 0; } .osm{ display:none; } }
-        @media (max-width:780px){ .stage{ grid-template-columns:1fr; } .sidepanel{ order:3; } }
-        .stage{ height:calc(100vh - 72px); min-height:0; }
+        @media (max-width:780px){ .stage{ grid-template-columns:1fr; } .sidepanel{margin-top: -8px; order:3; } }
+        .stage{ height:calc(100vh - 72px); min-height:0; padding-top: 8px; }
         .center{ min-height:0; }
-        .sidepanel{ display:flex; flex-direction:column; gap:12px; min-height:0; }
+        .sidepanel{ display:flex; flex-direction:column; gap:6px; min-height:0; margin-bottom:15px; }
         .panel.card.list{flex:1 1 auto; display:flex; flex-direction:column; min-height:0; }
-        .panel.card.list .items{ overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+        .panel.card.list .items{ overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;  }
         .panel.card.list .panel-title{ position:sticky; top:0; background:#fff; z-index:1; padding-bottom:8px; }
+        .list .items{ padding-top: 12px; scrollbar-gutter: stable both-edges; padding-right: 12px; box-sizing: border-box;}
+        
+        /* === Zoom controls === */
+        .zoom-controls{
+          position:absolute;
+          right:12px;
+          bottom:12px;
+          display:flex;
+          align-items:center;
+          gap:6px;
+          background:#fff;
+          border:1px solid var(--border);
+          border-radius:10px;
+          box-shadow:var(--shadow);
+          padding:6px;
+          z-index:5;
+        }
+        .zoom-controls button{
+          appearance:none;
+          border:1px solid var(--border);
+          background:#111;
+          color:#fff;
+          border-radius:8px;
+          padding:6px 10px;
+          font-weight:700;
+          cursor:pointer;
+        }
+        .zoom-controls .reset{
+          background:#fff;
+          color:#111;
+        }
+        .zoom-controls .zoom-indicator{
+          min-width:44px;
+          text-align:center;
+          font-weight:700;
+          color:#111;
+        }
+
+        /* ===== Modern transparent popup (scoped) ===== */
+        .popup.glass{
+          position:absolute;
+          width: 280px;            /* compact */
+          max-width: 70vw;
+          background: rgba(255,255,255,.55);
+          border: 1px solid rgba(255,255,255,.65);
+          border-radius: 14px;
+          box-shadow:
+            0 12px 28px rgba(2,8,23,.18),
+            0 0 0 1px color-mix(in srgb, var(--accent, #94a3b8), transparent 80%);
+          backdrop-filter: blur(10px) saturate(1.1);
+          -webkit-backdrop-filter: blur(10px) saturate(1.1);
+          color: #0f172a;
+          animation: pop .14s ease-out;
+          overflow: hidden;
+          border-width: 0; /* neutralize legacy 2px border */
+        }
+        .popup.glass .popup-hd{
+          display:flex; align-items:center; gap:10px;
+          padding: 10px 12px;
+          border-bottom: 1px solid color-mix(in srgb, var(--accent, #94a3b8), #ffffff 80%);
+          background: linear-gradient(
+            to bottom,
+            color-mix(in srgb, var(--accent, #94a3b8), transparent 90%),
+            transparent 60%
+          );
+        }
+        .popup.glass .pill{
+          color:#0b1020;
+          background: color-mix(in srgb, var(--accent, #94a3b8), #ffffff 30%);
+          border: 1px solid color-mix(in srgb, var(--accent, #94a3b8), #ffffff 65%);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #94a3b8), transparent 70%);
+          font-weight: 800;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 12px;
+        }
+        .popup.glass .bname{
+          font-weight: 800;
+          flex:1;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        }
+        .popup.glass .close{
+          appearance:none; border:none; background:transparent;
+          font-size: 18px; line-height:1; cursor:pointer; color:#0f172a; padding:0 4px;
+          opacity:.8;
+        }
+        .popup.glass .close:hover{ opacity:1; }
+        .popup.glass .popup-body{
+          padding: 10px 12px;
+          display:grid; gap:8px;
+        }
+        .popup.glass .row{
+          display:flex; justify-content:space-between; align-items:center;
+          font-size: 13.5px;
+          color:#111827;
+        }
+        .popup.glass .meter{
+          height: 6px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--accent, #94a3b8), transparent 85%);
+          border: 1px solid color-mix(in srgb, var(--accent, #94a3b8), transparent 60%);
+          overflow:hidden;
+          margin-top: 4px;
+        }
+        .popup.glass .meter .fill{
+          height:100%;
+          background: var(--accent, #94a3b8);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #94a3b8), transparent 70%) inset;
+          transition: width .18s ease;
+        }
+
+        /* Default legacy arrow (will be overridden by where-* rules below) */
+        .popup-arrow{
+          position:absolute;
+          top:-10px; left:28px;
+          width:0; height:0;
+          border-left:10px solid transparent;
+          border-right:10px solid transparent;
+          border-top:10px solid rgba(255,255,255,.55);
+          filter: drop-shadow(0 -2px 4px rgba(0,0,0,.08));
+        }
+
+        /* Reposition arrow depending on placement */
+        .popup.glass.where-top .popup-arrow{
+          bottom:-8px; left:24px;
+          border-left:8px solid transparent; border-right:8px solid transparent;
+          border-top:8px solid rgba(255,255,255,.55);
+          border-bottom:0; border-right-width:8px; border-left-width:8px;
+          top:auto;
+        }
+        .popup.glass.where-bottom .popup-arrow{
+          top:-8px; left:24px;
+          border-left:8px solid transparent; border-right:8px solid transparent;
+          border-bottom:8px solid rgba(255,255,255,.55);
+          border-top:0;
+          bottom:auto;
+        }
+        .popup.glass.where-right .popup-arrow{
+          left:-8px; top:12px;
+          border-top:8px solid transparent; border-bottom:8px solid transparent;
+          border-right:8px solid rgba(255,255,255,.55);
+          border-left:0;
+        }
+        .popup.glass.where-left .popup-arrow{
+          right:-8px; top:12px;
+          border-top:8px solid transparent; border-bottom:8px solid transparent;
+          border-left:8px solid rgba(255,255,255,.55);
+          border-right:0; left:auto;
+        }
+
+        /* Motion */
+        @keyframes pop{ from{ transform: translateY(4px); opacity:0 } to{ transform: none; opacity:1 } }
+        @media (prefers-reduced-transparency: reduce){
+          .popup.glass{ background:#ffffff; backdrop-filter:none; -webkit-backdrop-filter:none; }
+          .popup.glass .popup-arrow{ border-bottom-color:#ffffff; }
+        }
       `}</style>
     </div>
   );
@@ -520,12 +787,10 @@ function ensureViewBoxFitsContent(svg) {
       x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
     } catch {}
   });
-  if (!isFinite(x1) || !isFinite(y1) || !isFinite(y2) || !isFinite(x2)) return;
   const pad = 8;
   svg.setAttribute("viewBox", `${x1 - pad} ${y1 - pad} ${(x2 - x1) + 2*pad} ${(y2 - y1) + 2*pad}`);
 }
 
-/* --------- Canonical building id tagging --------- */
 function annotateCanonicalBuildingIds(svg) {
   const nodes = svg.querySelectorAll("[id]");
   nodes.forEach(el => {
@@ -535,13 +800,12 @@ function annotateCanonicalBuildingIds(svg) {
   });
 }
 
-/* Extract canonical Bnn or BnnX (X = A-Z) token from any id string. */
 function canonicalFromAny(raw) {
   if (!raw) return null;
   const s = String(raw);
   const m = s.match(/(?:^|[^a-z0-9])(b\d{1,3}[a-z]?)(?![0-9a-z])/i);
   if (!m) return null;
-  const token = m[1].toUpperCase(); // e.g., B12 or B12A
+  const token = m[1].toUpperCase();
   const m2 = token.match(/^B0*([0-9]+)([A-Z]?)$/);
   if (!m2) return token;
   const num = m2[1].replace(/^0+/, "") || "0";
@@ -549,7 +813,6 @@ function canonicalFromAny(raw) {
   return `B${num}${suf}`;
 }
 
-/* ----------- STRICT node lookup using canonical tag ----------- */
 function findNodesForId(svg, wantId) {
   const nodes = [...svg.querySelectorAll(`[data-building-id="${cssAttr(wantId)}"]`)];
   if (nodes.length) return pruneToTopmost(nodes);
@@ -567,7 +830,6 @@ function pruneToTopmost(nodes) {
   });
 }
 
-/* --------------- paint & effects --------------- */
 function paintNodeDeep(node, color) {
   const targets = isShape(node)
     ? [node]
@@ -582,6 +844,52 @@ function paintNodeDeep(node, color) {
     el.removeAttribute("fill");
     el.removeAttribute("stroke");
   });
+}
+
+/* ===== Labels: root layer + helpers ===== */
+function getLabelLayer(svg){
+  const ns = "http://www.w3.org/2000/svg";
+  let layer = svg.querySelector('g#__labels');
+  if (!layer){
+    layer = document.createElementNS(ns, 'g');
+    layer.setAttribute('id', '__labels');
+    layer.setAttribute('pointer-events', 'none');
+    svg.appendChild(layer); // on top for visibility
+  }
+  return layer;
+}
+
+function ensureIdLabel(svg, node, id) {
+  const ns = "http://www.w3.org/2000/svg";
+  const layer = getLabelLayer(svg);
+
+  let label = layer.querySelector(`text.b-label[data-label-for="${cssAttr(id)}"]`);
+  if (!label){
+    label = document.createElementNS(ns, 'text');
+    label.classList.add('b-label');
+    label.setAttribute('data-label-for', id);
+    label.textContent = id;
+    label.setAttribute('pointer-events', 'none');
+    layer.appendChild(label);
+  } else if (label.textContent !== id){
+    label.textContent = id;
+  }
+  layoutIdLabel(node, label);
+}
+
+function layoutIdLabel(node, labelEl) {
+  try {
+    const b = node.getBBox(); // current user space (includes transforms)
+    if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.width) || !isFinite(b.height)) return;
+
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    labelEl.setAttribute('x', String(cx));
+    labelEl.setAttribute('y', String(cy));
+
+    const fs = clamp(LABEL_MIN, Math.round(b.width * LABEL_FRACTION), LABEL_MAX);
+    labelEl.setAttribute('font-size', String(fs));
+  } catch { /* ignore degenerate shapes */ }
 }
 
 function nodeSetEmphasis(node, on) {
@@ -611,19 +919,21 @@ function occPct(info) {
 function statusFor(info) {
   const p = occPct(info);
   if (p == null) return "Unknown";
-  if (p < 20) return "Low";        // green
-  if (p < 50) return "Moderate";   // yellow
-  if (p < 70) return "Busy";       // orange
-  if (p < 90) return "High";       // red
-  return "Critical";               // dark red
+  if (p < 20) return "Low";
+  if (p < 50) return "Moderate";
+  if (p < 80) return "Busy";
+  if (p >= 80) return "High";
+  return "High";
 }
 function colorForStatus(status) {
   switch (status) {
-    case "Low":       return "#22c55e"; // green
-    case "Moderate":  return "#eab308"; // yellow
-    case "Busy":      return "#f97316"; // orange
-    case "High":      return "#ef4444"; // red
-    case "Critical":  return "#991b1b"; // dark red
-    default:          return "#94a3b8"; // slate (unknown)
+    case "Low":       return "#22c55e";
+    case "Moderate":  return "#eab308";
+    case "Busy":      return "#f97316";
+    case "High":      return "#ef4444";
+    default:          return "#94a3b8";
   }
 }
+
+/* small util for clamp (labels) */
+function clamp(min, v, max){ return Math.max(min, Math.min(max, v)); }
