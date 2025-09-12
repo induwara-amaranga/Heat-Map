@@ -181,6 +181,7 @@ export default function SvgHeatmap() {
         (typeof item?.current_crowd === "number") ? item.current_crowd : null;
 
       out[id] = {
+        capacity:item?.capacity || item?.building_capacity || CAPACITY[id] || null,
         name: item?.building_name || item?.name || id,
         current,
         color: item?.color || null,
@@ -202,7 +203,7 @@ export default function SvgHeatmap() {
             ...(next[id] || {}),
             name: BUILDING_NAMES[id] ?? v.name ?? next[id]?.name ?? id,
             current: v.current,
-            capacity: CAPACITY[id] ?? next[id]?.capacity ?? null,
+            capacity: v.capacity??CAPACITY[id] ?? next[id]?.capacity ?? null,
             updatedAt: v.updatedAt ?? next[id]?.updatedAt ?? null
           };
         }
