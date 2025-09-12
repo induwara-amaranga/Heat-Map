@@ -15,11 +15,11 @@ function getHeatmapColor(current, capacity) {
   if (capacity <= 0) return "#cccccc"; // gray for invalid capacity
   const ratio = current / capacity;
 
-  if (ratio <= 0.2) return "#00ff00"; // green
-  if (ratio <= 0.4) return "#a0ff00"; // light green
-  if (ratio <= 0.6) return "#ffff00"; // yellow
-  if (ratio <= 0.8) return "#ffa500"; // orange
-  return "#ff0000"; // red
+  if (ratio < 0.2) return "#22c55e"; // green
+  if (ratio < 0.5) return "#eab308"; // light green
+  if (ratio < 0.8) return "#f97316"; // yellow
+  //if (ratio < 0.9) return "#ef4444"; // orange
+  return "#ef4444"; // red
 }
 function pick(obj, keys) {
   return keys.reduce((result, key) => {
