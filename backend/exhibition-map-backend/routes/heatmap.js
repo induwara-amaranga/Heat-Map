@@ -45,7 +45,7 @@ async function fetchCapacities() {
 router.get("/map-data", async (req, res) => {
   try {
     // 1️ Check if cached data is recent (less than 1 minutes)
-    const dbResult = await pool.query("SELECT b.building_id,b.building_name,cs.current_crowd,cs.color,cs.status_timestamp FROM buildings b JOIN current_status cs ON b.building_id = cs.building_id");
+    const dbResult = await pool.query("SELECT b.building_id,b.building_name,cs.current_crowd,b.building_capacity,cs.color,cs.status_timestamp FROM buildings b JOIN current_status cs ON b.building_id = cs.building_id");
     const now = new Date();
     const capacityMap = await fetchCapacities();
 
@@ -87,7 +87,7 @@ router.get("/map-data", async (req, res) => {
       const color = getHeatmapColor(building.current_crowd, capacityMap[building.building_id] );
       const timestamp = new Date().toLocaleString();
 
-      coloredBuildings.push({ ...pick(building, ["building_id","building_name", "current_crowd"]), color, status_timestamp: timestamp });
+      coloredBuildings.push({ ...pick(building, ["building_id","building_name", "current_crowd"]),building_capacity:capacityMap[building.building_id] , color, status_timestamp: timestamp });
 
       // Insert or update current_status table
       await pool.query(
