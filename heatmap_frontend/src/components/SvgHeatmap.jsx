@@ -477,7 +477,7 @@ export default function SvgHeatmap() {
             <span className="chip" style={{ "--c": "#22c55e" }}>Low &lt;20%</span>
             <span className="chip" style={{ "--c": "#eab308" }}>Moderate &lt;50%</span>
             <span className="chip" style={{ "--c": "#f97316" }}>Busy &lt;80%</span>
-            <span className="chip" style={{ "--c": "#ef4444" }}>High &ge;90%</span>
+            <span className="chip" style={{ "--c": "#ef4444" }}>High &ge;80%</span>
           </div>
 
           {popup && (
