@@ -539,7 +539,7 @@ export default function SvgHeatmap() {
                 return (
                   <div key={b.id} className={`item ${active ? "active" : ""}`} onClick={() => focusBuilding(b)}>
                     <div className="item-row">
-                      <div className="idpill">{b.id!="B1"?getRawID(b.id):b.id}</div>
+                      <div className="idpill">{b.id!="B1"&&b.id!="B6"&&b.id!="B2"?getRawID(b.id):b.id}</div>
                       <div className="name">{b.name}</div>
                       <div className="chip" style={{ background: b.color }}>{b.status}</div>
                     </div>
