@@ -66,6 +66,57 @@ const BUILDING_NAMES = {
   B34:"Department of Electrical and Electronic Engineering ",
 };
 
+function getMapID(building_id) {
+  switch (building_id) {
+    case "C9":        return "B20";
+    case "C10":       return "B19";
+    case "B1":        return "B11";
+    case "C8":        return "B34";
+    case "B2":        return "B32";
+    case "C11/C12":   return "B31";
+    case "C13":       return "B28";
+    case "D16/D17":   return ["B23","B24"];
+    case "D18":       return "B29";
+    case "D20/D21":   return ["B2","B1"];
+    case "A22":       return "B13";
+    case "A25":       return "B6";
+    case "D15":       return "B30";
+    case "B3":        return "B33";
+    case "B4":        return "B16";
+    case "B5":        return "B7";
+    case "B6":        return "B12";
+    case "A28":       return "B15";
+    default:          return building_id;
+  }
+}
+
+function getRawID(mapId) {
+  switch (mapId) {
+    case "B20": return "C9";
+    case "B19": return "C10";
+    case "B11": return "B1";
+    case "B34": return "C8";
+    case "B32": return "B2";
+    case "B31": return "C11/C12";
+    case "B28": return "C13";
+    case "B23": return "D16";
+    case "B24": return "D17";
+    case "B29": return "D18";
+    case "B2":  return "D21";
+    case "B1":  return "D20";
+    case "B13": return "A22";
+    case "B6":  return "A25";
+    case "B30": return "D15";
+    case "B33": return "B3";
+    case "B16": return "B4";
+    case "B7":  return "B5";
+    case "B12": return "B6";
+    case "B15": return "A28";
+    default:    return mapId; // fallback: already raw
+  }
+}
+
+
 export default function SvgHeatmap() {
   const hostRef = useRef(null);
   const svgRef  = useRef(null);
@@ -173,20 +224,24 @@ export default function SvgHeatmap() {
     const out = {};
 
     for (const item of arr) {
-      const id = item?.id || item?.building_id;
-      if (!id) continue;
+      const ids = getMapID(item?.id || item?.building_id);
+      if (!ids) continue;
 
       const current =
         (typeof item?.count === "number") ? item.count :
         (typeof item?.current_crowd === "number") ? item.current_crowd : null;
 
-      out[id] = {
-        capacity:item?.capacity || item?.building_capacity || CAPACITY[id] || null,
-        name: item?.building_name || item?.name || id,
-        current,
-        color: item?.color || null,
-        updatedAt: item?.status_timestamp ? new Date(item.status_timestamp) : new Date()
-      };
+      // Support multiple ids returned from getMapID
+      const idList = Array.isArray(ids) ? ids : [ids];
+      for (const id of idList) {
+        out[id] = {
+          capacity: item?.capacity || item?.building_capacity || CAPACITY[id] || null,
+          name: item?.building_name || item?.name || id,
+          current,
+          color: item?.color || null,
+          updatedAt: item?.status_timestamp ? new Date(item.status_timestamp) : new Date()
+        };
+      }
     }
     return out;
   }
@@ -251,8 +306,11 @@ export default function SvgHeatmap() {
           attachInteractions(node, id);
           node.dataset.hmBound = "1";
         }
+        console.log("+"+id);
+        id=getRawID(id);
+        console.log(id);
         paintNodeDeep(node, color);
-
+        
         // === ensure/update the centered ID label at the SVG root layer ===
         ensureIdLabel(svg, node, id);
       });
@@ -314,7 +372,7 @@ export default function SvgHeatmap() {
 
       setSelectedId(id);
       setPopup({
-        id,
+        id:getRawID(id),
         name: infoNow?.name || id,
         current: infoNow?.current ?? null,
         capacity: infoNow?.capacity ?? null,
@@ -472,7 +530,7 @@ export default function SvgHeatmap() {
                 return (
                   <div key={b.id} className={`item ${active ? "active" : ""}`} onClick={() => focusBuilding(b)}>
                     <div className="item-row">
-                      <div className="idpill">{b.id}</div>
+                      <div className="idpill">{getRawID(b.id)}</div>
                       <div className="name">{b.name}</div>
                       <div className="chip" style={{ background: b.color }}>{b.status}</div>
                     </div>
