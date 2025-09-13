@@ -115,8 +115,8 @@ router.get("/map-data", async (req, res) => {
 
     // 2️ Otherwise fetch from API
     console.log("Fetching fresh data from Buildings API...");
-    //const response = await axios.get(CCTV_API_URL);
-    const response = await axios.get(`${API_BASE_URL}/BUILDING`, { headers });
+    const response = await axios.get(CCTV_API_URL);
+    //const response = await axios.get(`${API_BASE_URL}/BUILDING`, { headers });
 
 
     const buildings = response.data.data || response.data;

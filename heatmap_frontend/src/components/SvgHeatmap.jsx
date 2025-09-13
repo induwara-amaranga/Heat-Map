@@ -1,6 +1,9 @@
 // SvgHeatmap.jsx
 import { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
+import { setCachedSVG, getCachedSVG } from './svgStore';
+
+//const svgRef = useRef(null);
 
 const SVG_URL = "/campus.svg";
 // If you use a Vite proxy, set API_URL = "/heatmap/map-data"
@@ -86,6 +89,10 @@ function getMapID(building_id) {
     case "B5":        return "B7";
     case "B6":        return "B12";
     case "A28":       return "B15";
+    case "D16":      return "B23";
+    case "D17":      return "B24";
+    case "D20":      return "B1";
+    case "D21":      return "B2";
     default:          return building_id;
   }
 }
@@ -144,8 +151,9 @@ export default function SvgHeatmap() {
       const status = statusFor(info);
       const color  = buildingColors[id] || colorForStatus(status);
       return {
-        id,
-        name: info?.name || id,
+        id:getRawID(id),
+        //id,
+        name: info?.name || getRawID(id),
         current: info?.current ?? null,
         capacity: info?.capacity ?? null,
         occ: occPct(info),
@@ -196,6 +204,7 @@ export default function SvgHeatmap() {
         annotateCanonicalBuildingIds(svg);
 
         svgRef.current = svg;
+        setCachedSVG(svg.cloneNode(true));
 
         // Initial zoom apply (so current scale is visible immediately)
         svg.style.transformOrigin = "center center";
@@ -306,9 +315,9 @@ export default function SvgHeatmap() {
           attachInteractions(node, id);
           node.dataset.hmBound = "1";
         }
-        console.log("+"+id);
+        //console.log("+"+id);
         id=getRawID(id);
-        console.log(id);
+        //console.log(id);
         paintNodeDeep(node, color);
         
         // === ensure/update the centered ID label at the SVG root layer ===
@@ -391,13 +400,13 @@ export default function SvgHeatmap() {
   function focusBuilding(b) {
     const svg = svgRef.current;
     if (!svg) return;
-    const nodes = findNodesForId(svg, b.id);
+    const nodes = findNodesForId(svg, getMapID(b.id));
     const node = nodes[0];
     if (!node) return;
 
     const pos = smartPopupPosition(node, hostRef.current);
 
-    setSelectedId(b.id);
+    setSelectedId(getMapID(b.id));
     setPopup({
       id: b.id, name: b.name, current: b.current, capacity: b.capacity,
       occ: b.occ, status: b.status, color: b.color,
@@ -530,7 +539,7 @@ export default function SvgHeatmap() {
                 return (
                   <div key={b.id} className={`item ${active ? "active" : ""}`} onClick={() => focusBuilding(b)}>
                     <div className="item-row">
-                      <div className="idpill">{getRawID(b.id)}</div>
+                      <div className="idpill">{b.id!="B1"?getRawID(b.id):b.id}</div>
                       <div className="name">{b.name}</div>
                       <div className="chip" style={{ background: b.color }}>{b.status}</div>
                     </div>
